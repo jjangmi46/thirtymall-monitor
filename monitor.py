@@ -110,31 +110,53 @@ def find_new_products(current, previous):
     new_products = [p for p in current if p['id'] not in previous_ids]
     return new_products
 
+def send_telegram_notification(new_products):
+    """Send notification via Telegram bot"""
+    if not new_products:
+        return
+    
+    bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
+    chat_id = os.getenv('TELEGRAM_CHAT_ID')
+    
+    if not bot_token or not chat_id:
+        print("Telegram credentials not configured")
+        return
+    
+    # Prepare message
+    message = f"🧈 Found {len(new_products)} new 버터 products!\n\n"
+    
+    for product in new_products[:10]:  # Limit to 10 products to avoid message length limits
+        title = product['title'][:100]  # Truncate long titles
+        message += f"• {title}\n{product['link']}\n\n"
+    
+    if len(new_products) > 10:
+        message += f"... and {len(new_products) - 10} more products"
+    
+    # Send via Telegram Bot API
+    telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
+    payload = {
+        'chat_id': chat_id,
+        'text': message,
+        'parse_mode': 'HTML',
+        'disable_web_page_preview': False
+    }
+    
+    try:
+        response = requests.post(telegram_url, json=payload, timeout=10)
+        if response.status_code == 200:
+            print("Telegram notification sent successfully")
+        else:
+            print(f"Telegram notification failed: {response.status_code} - {response.text}")
+    except Exception as e:
+        print(f"Error sending Telegram notification: {e}")
+
 def send_notification(new_products):
     """Send notification about new products"""
     if not new_products:
         return
     
-    # GitHub Actions can use secrets for notification services
-    webhook_url = os.getenv('DISCORD_WEBHOOK_URL')  # or SLACK_WEBHOOK_URL, etc.
-    
-    if webhook_url:
-        message = f"🧈 Found {len(new_products)} new 버터 products!\n\n"
-        for product in new_products[:5]:  # Limit to 5 products
-            message += f"• {product['title']}\n  {product['link']}\n\n"
-        
-        if len(new_products) > 5:
-            message += f"... and {len(new_products) - 5} more products"
-        
-        # Send to Discord webhook
-        if 'discord' in webhook_url:
-            payload = {'content': message}
-            requests.post(webhook_url, json=payload)
-        
-        # Send to Slack webhook
-        elif 'slack' in webhook_url:
-            payload = {'text': message}
-            requests.post(webhook_url, json=payload)
+    # Send Telegram notification
+    send_telegram_notification(new_products)
     
     # Always print to console (visible in GitHub Actions logs)
     print(f"\n🧈 NEW PRODUCTS FOUND ({len(new_products)}):")
