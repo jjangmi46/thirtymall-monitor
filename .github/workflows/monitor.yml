@@ -21,7 +21,15 @@ jobs:
         
     - name: Install dependencies
       run: |
-        pip install requests beautifulsoup4
+        pip install requests beautifulsoup4 selenium
+        
+    - name: Set up Chrome
+      uses: browser-actions/setup-chrome@v1
+      with:
+        chrome-version: stable
+        
+    - name: Set up ChromeDriver
+      uses: nanasess/setup-chromedriver@v2
         
     - name: Run product monitor
       env:
