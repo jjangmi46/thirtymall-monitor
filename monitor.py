@@ -297,45 +297,26 @@ def get_products_selenium(url):
                 except Exception as e:
                     continue
         
-        except Exception as e:
-            print(f"Error during product extraction: {e}")
-        
-        finally:
-            # Always quit the driver
-            if driver:
-                try:
-                    driver.quit()
-                    print("Chrome browser closed")
-                except:
-                    pass
-        
         print(f"Selenium result: Found {len(products)} products with '버터'")
         return products
         
     except TimeoutError as e:
         print(f"Selenium timeout: {e}")
-        if driver:
-            try:
-                driver.quit()
-            except:
-                pass
         return []
     except WebDriverException as e:
         print(f"Selenium WebDriver error: {e}")
-        if driver:
-            try:
-                driver.quit()
-            except:
-                pass
         return []
     except Exception as e:
         print(f"Selenium error: {e}")
+        return []
+    finally:
+        # Always quit the driver
         if driver:
             try:
                 driver.quit()
+                print("Chrome browser closed")
             except:
                 pass
-        return []
 
 def get_products_requests(url):
     """Fallback method using requests (won't work for JS content)"""
