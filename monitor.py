@@ -90,10 +90,12 @@ def get_products_selenium(url):
                 
                 # Find the nearest link (parent or child)
                 link_element = None
+                product_container = None
                 
                 # Check if element itself is a link
                 if element.tag_name == 'a':
                     link_element = element
+                    product_container = element
                 else:
                     # Look for link in parent elements
                     parent = element
@@ -101,11 +103,13 @@ def get_products_selenium(url):
                         parent = parent.find_element(By.XPATH, "..")
                         if parent.tag_name == 'a':
                             link_element = parent
+                            product_container = parent
                             break
                         # Or look for a link within the parent
                         links = parent.find_elements(By.TAG_NAME, 'a')
                         if links:
                             link_element = links[0]
+                            product_container = parent
                             break
                 
                 link = ""
@@ -117,8 +121,45 @@ def get_products_selenium(url):
                         continue
                     processed_links.add(link)
                 
-                # Clean up title
+                # Look for price in the product container or nearby elements
+                price = ""
+                if product_container:
+                    # Common price selectors for Korean e-commerce
+                    price_selectors = [
+                        '.price', '.cost', '.amount', '.won',
+                        '[class*="price"]', '[class*="cost"]', '[class*="won"]',
+                        '.sale-price', '.current-price', '.final-price'
+                    ]
+                    
+                    for price_sel in price_selectors:
+                        try:
+                            price_elem = product_container.find_element(By.CSS_SELECTOR, price_sel)
+                            price_text = price_elem.text.strip()
+                            # Look for Korean won patterns
+                            if any(char in price_text for char in ['원', '₩', ',']):
+                                price = price_text
+                                break
+                        except:
+                            continue
+                    
+                    # If no price found with selectors, look for text with 원 or ₩
+                    if not price:
+                        container_text = product_container.text
+                        import re
+                        price_patterns = [
+                            r'[\d,]+원',  # 1,000원
+                            r'₩[\d,]+',   # ₩1,000
+                            r'[\d,]+\s*원',  # 1,000 원
+                        ]
+                        for pattern in price_patterns:
+                            matches = re.findall(pattern, container_text)
+                            if matches:
+                                price = matches[0]
+                                break
+                
+                # Clean up title and price
                 title = ' '.join(title.split())[:200]
+                price = ' '.join(price.split()) if price else ""
                 
                 # Create unique ID
                 product_id = hashlib.md5((title + link).encode()).hexdigest()[:8]
@@ -126,12 +167,13 @@ def get_products_selenium(url):
                 product = {
                     'id': product_id,
                     'title': title,
+                    'price': price,
                     'link': link,
                     'found_at': datetime.now().isoformat()
                 }
                 
                 products.append(product)
-                print(f"  Found product: {title[:100]}")
+                print(f"  Found product: {title[:100]} - {price}")
                 
             except Exception as e:
                 print(f"Error processing element: {e}")
@@ -150,18 +192,52 @@ def get_products_selenium(url):
                     if '버터' in link_text and link_url not in processed_links:
                         processed_links.add(link_url)
                         
+                        # Look for price near this link
+                        price = ""
+                        try:
+                            # Look in parent container for price
+                            parent = link_elem.find_element(By.XPATH, "..")
+                            price_selectors = [
+                                '.price', '.cost', '.amount', '.won',
+                                '[class*="price"]', '[class*="cost"]', '[class*="won"]'
+                            ]
+                            
+                            for price_sel in price_selectors:
+                                try:
+                                    price_elem = parent.find_element(By.CSS_SELECTOR, price_sel)
+                                    price_text = price_elem.text.strip()
+                                    if any(char in price_text for char in ['원', '₩', ',']):
+                                        price = price_text
+                                        break
+                                except:
+                                    continue
+                            
+                            # Fallback: look for price patterns in parent text
+                            if not price:
+                                import re
+                                parent_text = parent.text
+                                price_patterns = [r'[\d,]+원', r'₩[\d,]+', r'[\d,]+\s*원']
+                                for pattern in price_patterns:
+                                    matches = re.findall(pattern, parent_text)
+                                    if matches:
+                                        price = matches[0]
+                                        break
+                        except:
+                            pass
+                        
                         title = ' '.join(link_text.split())[:200]
                         product_id = hashlib.md5((title + link_url).encode()).hexdigest()[:8]
                         
                         product = {
                             'id': product_id,
                             'title': title,
+                            'price': price,
                             'link': link_url,
                             'found_at': datetime.now().isoformat()
                         }
                         
                         products.append(product)
-                        print(f"  Found product via link: {title[:100]}")
+                        print(f"  Found product via link: {title[:100]} - {price}")
                         
                 except Exception as e:
                     continue
@@ -256,7 +332,9 @@ def send_telegram_notification(new_products):
     
     for product in new_products[:10]:
         title = product['title'][:100]
-        message += f"• {title}\n{product['link']}\n\n"
+        price = product.get('price', '')
+        price_text = f" - {price}" if price else ""
+        message += f"• {title}{price_text}\n{product['link']}\n\n"
     
     if len(new_products) > 10:
         message += f"... and {len(new_products) - 10} more products"
@@ -288,7 +366,8 @@ def send_notification(new_products):
     
     print(f"\n🧈 NEW PRODUCTS FOUND ({len(new_products)}):")
     for product in new_products:
-        print(f"  • {product['title']}")
+        price_text = f" - {product.get('price', '')}" if product.get('price') else ""
+        print(f"  • {product['title']}{price_text}")
         print(f"    {product['link']}")
         print()
 
