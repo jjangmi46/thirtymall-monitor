@@ -34,6 +34,27 @@ def get_products_selenium(url):
     try:
         # Configure Chrome options for GitHub Actions - ORIGINAL WORKING CONFIG
         chrome_options = Options()
+        
+        # Try to find Chrome binary
+        chrome_paths = [
+            '/usr/bin/google-chrome',
+            '/usr/bin/google-chrome-stable', 
+            '/usr/bin/chromium-browser',
+            '/usr/bin/chromium'
+        ]
+        
+        chrome_binary = None
+        for path in chrome_paths:
+            if os.path.exists(path):
+                chrome_binary = path
+                break
+        
+        if chrome_binary:
+            chrome_options.binary_location = chrome_binary
+            print(f"Using Chrome binary: {chrome_binary}")
+        else:
+            print("Chrome binary not found, trying default")
+        
         chrome_options.add_argument('--headless')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
