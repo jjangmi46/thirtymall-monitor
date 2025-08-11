@@ -25,19 +25,25 @@ jobs:
       run: |
         pip install requests beautifulsoup4 selenium
         
-    - name: Set up Chrome
-      uses: browser-actions/setup-chrome@v1
-      with:
-        chrome-version: stable
+    - name: Install Chrome
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y google-chrome-stable
         
-    - name: Set up ChromeDriver
-      uses: nanasess/setup-chromedriver@v2
+    - name: Install ChromeDriver
+      run: |
+        sudo apt-get install -y chromium-chromedriver
+        sudo ln -s /usr/lib/chromium-browser/chromedriver /usr/local/bin/chromedriver || true
+        chromedriver --version
         
     - name: Run product monitor
+      timeout-minutes: 10  # Kill the step after 10 minutes
       env:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-      run: python monitor.py
+      run: |
+        echo "Starting monitor script..."
+        timeout 480s python monitor.py || echo "Script timed out or failed"
       
     - name: Commit and push changes
       run: |
