@@ -1,81 +1,172 @@
 #!/usr/bin/env python3
 """
-ThirtyMall Product Monitor
+ThirtyMall Product Monitor - Enhanced Version
 Monitors for new products containing '버터' in category 796224
 """
 
 import requests
 import json
 import os
+import time
+import random
 from datetime import datetime
 from bs4 import BeautifulSoup
 import hashlib
 
 def get_products(url):
-    """Scrape products from the search page"""
+    """Scrape products from the search page with better bot detection avoidance"""
+    
+    # More realistic browser headers
     headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'ko-KR,ko;q=0.9,en;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'DNT': '1',
+        'Connection': 'keep-alive',
+        'Upgrade-Insecure-Requests': '1',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Cache-Control': 'max-age=0'
     }
     
+    # Add random delay to seem more human-like
+    time.sleep(random.uniform(1, 3))
+    
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        response.raise_for_status()
+        # Create a session to maintain cookies
+        session = requests.Session()
+        session.headers.update(headers)
+        
+        print(f"Requesting: {url}")
+        response = session.get(url, timeout=15)
+        
+        print(f"Response status: {response.status_code}")
+        print(f"Response size: {len(response.content)} bytes")
+        
+        if response.status_code != 200:
+            print(f"HTTP Error: {response.status_code}")
+            return []
+        
+        # Save raw HTML for debugging
+        with open('debug_page.html', 'w', encoding='utf-8') as f:
+            f.write(response.text)
+        print("Saved page HTML to debug_page.html")
         
         soup = BeautifulSoup(response.content, 'html.parser')
         
-        # You'll need to inspect the HTML to find the right selectors
-        # These are common patterns - adjust based on actual site structure
+        # Debug: Print page title and check if we got the right page
+        page_title = soup.find('title')
+        print(f"Page title: {page_title.get_text() if page_title else 'No title found'}")
+        
+        # Look for common Korean e-commerce patterns
         products = []
         
-        # Try multiple possible selectors for product containers
+        # More comprehensive selectors for Korean shopping sites
         product_selectors = [
-            '.product-item', '.item', '.goods-item', '.product',
-            '[class*="product"]', '[class*="item"]', '[class*="goods"]'
+            # Common Korean e-commerce patterns
+            '.goods-item', '.product-item', '.item-wrap', '.goods-wrap',
+            '.prd-item', '.product-wrap', '.goods-list-item', '.item-box',
+            '[class*="goods"]', '[class*="product"]', '[class*="item"]',
+            # Generic patterns
+            '.list-item', '.search-item', '.result-item',
+            # Data attributes
+            '[data-product-id]', '[data-goods-id]', '[data-item-id]'
         ]
         
         product_elements = []
         for selector in product_selectors:
             elements = soup.select(selector)
             if elements:
-                product_elements = elements
                 print(f"Found {len(elements)} elements with selector: {selector}")
+                product_elements = elements
                 break
         
+        # If no specific selectors work, try to find links with product-like URLs
         if not product_elements:
-            # Fallback: look for links that might be products
-            product_elements = soup.find_all('a', href=True)
-            print(f"Fallback: Found {len(product_elements)} links")
+            all_links = soup.find_all('a', href=True)
+            product_links = [
+                link for link in all_links 
+                if any(keyword in link.get('href', '').lower() 
+                      for keyword in ['product', 'goods', 'item', '/p/', '/g/'])
+            ]
+            print(f"Found {len(product_links)} product-like links")
+            product_elements = product_links
         
-        for element in product_elements[:20]:  # Limit to first 20 items
+        # Last resort: look for any text containing 버터
+        if not product_elements:
+            butter_elements = soup.find_all(text=lambda text: text and '버터' in text)
+            print(f"Found {len(butter_elements)} elements containing '버터'")
+            # Get parent elements of text nodes
+            product_elements = [elem.parent for elem in butter_elements[:10] if elem.parent]
+        
+        print(f"Processing {len(product_elements)} potential product elements")
+        
+        for i, element in enumerate(product_elements[:20]):  # Limit processing
             try:
-                # Extract product info - adjust selectors based on site structure
-                title_element = element.find(['h3', 'h4', 'span', 'div'], class_=lambda x: x and any(word in x.lower() for word in ['title', 'name', 'product']))
-                title = title_element.get_text(strip=True) if title_element else element.get_text(strip=True)[:100]
+                # Try multiple approaches to extract product info
+                title = ""
+                link = ""
                 
-                # Skip if title doesn't contain 버터
-                if '버터' not in title:
+                # Method 1: Look for title in common places
+                title_selectors = [
+                    '.goods-name', '.product-name', '.item-name', '.prd-name',
+                    '.title', '.name', 'h3', 'h4', 'h5',
+                    '[class*="name"]', '[class*="title"]'
+                ]
+                
+                for title_sel in title_selectors:
+                    title_elem = element.select_one(title_sel)
+                    if title_elem:
+                        title = title_elem.get_text(strip=True)
+                        break
+                
+                # Method 2: If no title found, use element text
+                if not title:
+                    title = element.get_text(strip=True)[:200]  # Limit length
+                
+                # Method 3: Look for links
+                if element.name == 'a':
+                    link = element.get('href', '')
+                else:
+                    link_elem = element.find('a', href=True)
+                    if link_elem:
+                        link = link_elem.get('href', '')
+                
+                # Fix relative URLs
+                if link and not link.startswith('http'):
+                    if link.startswith('/'):
+                        link = 'https://thirtymall.com' + link
+                    else:
+                        link = 'https://thirtymall.com/' + link
+                
+                # Skip if no title or title doesn't contain 버터
+                if not title or '버터' not in title:
                     continue
                 
-                # Get product link
-                link = element.get('href', '')
-                if link and not link.startswith('http'):
-                    link = 'https://thirtymall.com' + link
+                # Clean up title
+                title = ' '.join(title.split())  # Remove extra whitespace
                 
-                # Create unique ID for the product
+                # Create unique ID
                 product_id = hashlib.md5((title + link).encode()).hexdigest()[:8]
                 
-                products.append({
+                product = {
                     'id': product_id,
                     'title': title,
                     'link': link,
                     'found_at': datetime.now().isoformat()
-                })
+                }
+                
+                products.append(product)
+                print(f"  Product {len(products)}: {title[:100]}")
                 
             except Exception as e:
-                print(f"Error processing element: {e}")
+                print(f"Error processing element {i}: {e}")
                 continue
         
-        print(f"Found {len(products)} products with '버터'")
+        print(f"\nFinal result: Found {len(products)} products with '버터'")
         return products
         
     except requests.RequestException as e:
@@ -175,7 +266,7 @@ def main():
     current_products = get_products(url)
     
     if not current_products:
-        print("No products found - might be blocked or site structure changed")
+        print("No products found - check debug_page.html for the actual page content")
         return
     
     # Load previous products
