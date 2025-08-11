@@ -32,38 +32,65 @@ def get_products_selenium(url):
         return []
     
     try:
-        # Configure Chrome options for GitHub Actions - ORIGINAL WORKING CONFIG
+        # Debug: Check Chrome installation
+        print("=== Chrome Debug Info ===")
+        import subprocess
+        try:
+            chrome_version = subprocess.check_output(['google-chrome', '--version'], stderr=subprocess.STDOUT)
+            print(f"Chrome version: {chrome_version.decode().strip()}")
+        except Exception as e:
+            print(f"Chrome version check failed: {e}")
+            
+        try:
+            chromedriver_version = subprocess.check_output(['chromedriver', '--version'], stderr=subprocess.STDOUT)
+            print(f"ChromeDriver version: {chromedriver_version.decode().strip()}")
+        except Exception as e:
+            print(f"ChromeDriver version check failed: {e}")
+        
+        # Configure Chrome options for GitHub Actions
         chrome_options = Options()
         
         # Try to find Chrome binary
         chrome_paths = [
+            '/usr/bin/google-chrome-stable',
             '/usr/bin/google-chrome',
-            '/usr/bin/google-chrome-stable', 
             '/usr/bin/chromium-browser',
-            '/usr/bin/chromium'
+            '/usr/bin/chromium',
+            '/snap/bin/chromium'
         ]
         
         chrome_binary = None
         for path in chrome_paths:
             if os.path.exists(path):
                 chrome_binary = path
+                print(f"Found Chrome binary: {chrome_binary}")
                 break
         
         if chrome_binary:
             chrome_options.binary_location = chrome_binary
-            print(f"Using Chrome binary: {chrome_binary}")
         else:
-            print("Chrome binary not found, trying default")
+            print("No Chrome binary found, using default")
         
-        chrome_options.add_argument('--headless')
+        # Comprehensive Chrome arguments for stability
+        chrome_options.add_argument('--headless=new')  # Use new headless mode
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--disable-gpu')
+        chrome_options.add_argument('--disable-web-security')
+        chrome_options.add_argument('--disable-features=VizDisplayCompositor')
+        chrome_options.add_argument('--disable-extensions')
+        chrome_options.add_argument('--disable-plugins')
+        chrome_options.add_argument('--disable-images')  # Save bandwidth
         chrome_options.add_argument('--window-size=1920,1080')
-        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
+        chrome_options.add_argument('--remote-debugging-port=9222')
+        
+        # Set service
+        from selenium.webdriver.chrome.service import Service
+        service = Service('/usr/local/bin/chromedriver')
         
         print("Starting Chrome browser...")
-        driver = webdriver.Chrome(options=chrome_options)
+        driver = webdriver.Chrome(service=service, options=chrome_options)
         driver.implicitly_wait(10)
         
         print(f"Loading page: {url}")
