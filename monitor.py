@@ -121,11 +121,46 @@ def get_products(url):
                 if not title:
                     continue
                 
-                # Find price
+                # Find price - look for patterns like "23,900원"
                 price = ""
-                price_matches = re.findall(r'[\d,]+\s*원', text)
+                discount = ""
+                
+                # Method 1: Find price in text with regex
+                price_matches = re.findall(r'[\d,]+원', text)
                 if price_matches:
-                    price = price_matches[0]
+                    # Usually the price after discount is what we want
+                    # If there are multiple prices, take the last one (usually the final price)
+                    price = price_matches[-1] if len(price_matches) > 1 else price_matches[0]
+                
+                # Method 2: Look for discount percentage
+                discount_matches = re.findall(r'\d+%', text)
+                if discount_matches:
+                    discount = discount_matches[0]
+                
+                # Try to find price using MUI classes if not found
+                if not price:
+                    try:
+                        # Try to find price element within parent container
+                        parent = elem
+                        for _ in range(3):
+                            parent = parent.find_element(By.XPATH, "..")
+                            # Look for MUI price classes
+                            price_elems = parent.find_elements(By.CSS_SELECTOR, "p[class*='mui-19ap8mx'], p[class*='mui-1q2ut94'], .price, [class*='price']")
+                            for pe in price_elems:
+                                pe_text = pe.text.strip()
+                                if '원' in pe_text:
+                                    price = pe_text
+                                    break
+                            if price:
+                                break
+                    except:
+                        pass
+                
+                # Format price with discount if available
+                if discount and price:
+                    price = f"{discount} {price}"
+                elif not price:
+                    price = "가격 정보 없음"
                 
                 # Try to get link
                 link = url  # Default to search page
