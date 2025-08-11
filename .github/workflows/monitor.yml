@@ -25,9 +25,8 @@ jobs:
         
     - name: Run product monitor
       env:
-        DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
-        # Add other webhook URLs as needed:
-        # SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+        TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+        TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: python monitor.py
       
     - name: Commit and push changes
