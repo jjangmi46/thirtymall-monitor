@@ -23,7 +23,10 @@ jobs:
         
     - name: Install dependencies
       run: |
+        echo "Installing Python packages..."
+        pip install --upgrade pip
         pip install requests beautifulsoup4 selenium webdriver-manager
+        pip list
         
     - name: Run product monitor
       timeout-minutes: 10  # Kill the step after 10 minutes
@@ -32,12 +35,43 @@ jobs:
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: |
         echo "Starting monitor script..."
-        timeout 480s python monitor.py || echo "Script timed out or failed"
+        python monitor.py || echo "Script exited with code $?"
+        echo "Script execution completed"
+      
+    - name: Upload debug artifacts
+      if: always()  # Run even if previous step fails
+      uses: actions/upload-artifact@v3
+      with:
+        name: debug-output
+        path: |
+          debug_page.html
+          previous_products.json
+        retention-days: 7
+      continue-on-error: true
+      
+    - name: Check for debug files
+      if: always()
+      run: |
+        echo "=== Checking for debug files ==="
+        if [ -f "debug_page.html" ]; then
+          echo "debug_page.html exists, size: $(stat -c%s debug_page.html) bytes"
+          echo "First 1000 characters:"
+          head -c 1000 debug_page.html
+        else
+          echo "debug_page.html not found"
+        fi
+        
+        if [ -f "previous_products.json" ]; then
+          echo "previous_products.json exists"
+          cat previous_products.json
+        else
+          echo "previous_products.json not found"
+        fi
       
     - name: Commit and push changes
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        git add previous_products.json
-        git diff --staged --quiet || git commit -m "Update product tracking data"
-        git push
+        git add previous_products.json || true
+        git diff --staged --quiet || git commit -m "Update product tracking data [skip ci]"
+        git push || echo "No changes to push"
