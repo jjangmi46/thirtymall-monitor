@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 """
-ThirtyMall Product Monitor - Selenium Version
+ThirtyMall Product Monitor - Working Version with Prices
 Monitors for new products containing '버터' in category 796224
-Uses headless browser to handle JavaScript-loaded content
 """
 
+import requests
 import json
 import os
 import time
 import random
 from datetime import datetime
 import hashlib
-import requests
 
 # Try to import selenium, fall back to requests if not available
 try:
@@ -27,105 +26,49 @@ except ImportError:
     print("Selenium not available, falling back to requests method")
 
 def get_products_selenium(url):
-    """Scrape products using Selenium (handles JavaScript)"""
+    """Scrape products using Selenium (handles JavaScript) - WORKING VERSION"""
     if not SELENIUM_AVAILABLE:
         print("Selenium not installed, cannot handle JavaScript content")
         return []
     
-    driver = None
     try:
-        # Configure Chrome options for GitHub Actions
+        # Configure Chrome options for GitHub Actions - ORIGINAL WORKING CONFIG
         chrome_options = Options()
         chrome_options.add_argument('--headless')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--disable-extensions')
-        chrome_options.add_argument('--disable-logging')
-        chrome_options.add_argument('--disable-background-timer-throttling')
-        chrome_options.add_argument('--disable-backgrounding-occluded-windows')
-        chrome_options.add_argument('--disable-renderer-backgrounding')
         chrome_options.add_argument('--window-size=1920,1080')
-        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebDriver/537.36')
-        chrome_options.add_argument('--accept-lang=ko-KR,ko,en')
-        chrome_options.add_argument('--remote-debugging-port=9222')
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36')
         
         print("Starting Chrome browser...")
-        
-        # Set timeouts
-        import signal
-        def timeout_handler(signum, frame):
-            raise TimeoutError("Chrome startup timeout")
-        
-        # 30 second timeout for Chrome startup
-        signal.signal(signal.SIGALRM, timeout_handler)
-        signal.alarm(30)
-        
-        try:
-            driver = webdriver.Chrome(options=chrome_options)
-            signal.alarm(0)  # Cancel timeout
-            print("Chrome browser started successfully")
-        except:
-            signal.alarm(0)  # Cancel timeout
-            raise
-        
-        # Set page load timeout
-        driver.set_page_load_timeout(20)
-        driver.implicitly_wait(5)
+        driver = webdriver.Chrome(options=chrome_options)
+        driver.implicitly_wait(10)
         
         print(f"Loading page: {url}")
-        
-        # Load page with timeout handling
-        try:
-            driver.get(url)
-            print("Page loaded successfully")
-        except Exception as e:
-            print(f"Page load failed: {e}")
-            # Try one more time
-            print("Retrying page load...")
-            time.sleep(2)
-            driver.get(url)
+        driver.get(url)
         
         # Wait for page to load
-        print("Waiting for page to stabilize...")
-        time.sleep(5)
+        time.sleep(3)
         
-        # Check if page loaded properly
-        current_url = driver.current_url
-        page_title = driver.title
-        print(f"Current URL: {current_url}")
-        print(f"Page title: {page_title}")
-        
-        # Wait for products to load - with timeout
+        # Wait for products to load - look for common loading indicators
         try:
-            print("Waiting for products to load...")
-            WebDriverWait(driver, 10).until(
+            # Wait up to 15 seconds for content to appear
+            WebDriverWait(driver, 15).until(
                 lambda driver: len(driver.find_elements(By.CSS_SELECTOR, "a[href*='product'], a[href*='goods'], a[href*='/p/']")) > 0
                 or "버터" in driver.page_source
-                or len(driver.page_source) > 50000  # Page has substantial content
             )
             print("Content loaded successfully")
         except TimeoutException:
-            print("Timeout waiting for content - proceeding anyway")
+            print("Timeout waiting for content to load")
         
         # Additional wait to ensure all dynamic content is loaded
-        time.sleep(3)
+        time.sleep(2)
         
         # Save page source for debugging
-        try:
-            page_source = driver.page_source
-            with open('debug_selenium_page.html', 'w', encoding='utf-8') as f:
-                f.write(page_source)
-            print(f"Saved Selenium page HTML ({len(page_source)} chars)")
-            
-            # Quick check if we have the right content
-            if '버터' in page_source:
-                print("✓ Found '버터' in page source")
-            else:
-                print("✗ No '버터' found in page source")
-                
-        except Exception as e:
-            print(f"Error saving page source: {e}")
+        with open('debug_selenium_page.html', 'w', encoding='utf-8') as f:
+            f.write(driver.page_source)
+        print("Saved Selenium page HTML to debug_selenium_page.html")
         
         # Search for products containing '버터'
         products = []
@@ -297,90 +240,28 @@ def get_products_selenium(url):
                 except Exception as e:
                     continue
         
+        driver.quit()
         print(f"Selenium result: Found {len(products)} products with '버터'")
         return products
         
-    except TimeoutError as e:
-        print(f"Selenium timeout: {e}")
-        return []
     except WebDriverException as e:
         print(f"Selenium WebDriver error: {e}")
         return []
     except Exception as e:
         print(f"Selenium error: {e}")
         return []
-    finally:
-        # Always quit the driver
-        if driver:
-            try:
-                driver.quit()
-                print("Chrome browser closed")
-            except:
-                pass
-
-def get_products_requests(url):
-    """Fallback method using requests (won't work for JS content)"""
-    print("Using requests fallback method...")
-    # Simple requests version for comparison
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
-    
-    try:
-        response = requests.get(url, headers=headers, timeout=10)
-        if response.status_code == 200:
-            with open('debug_requests_page.html', 'w', encoding='utf-8') as f:
-                f.write(response.text)
-            print("Saved requests page HTML to debug_requests_page.html")
-            
-            if '버터' in response.text:
-                print("Found '버터' in requests response")
-            else:
-                print("No '버터' found in requests response")
-        
-        return []  # Not implementing full parsing for fallback
-    except Exception as e:
-        print(f"Requests fallback error: {e}")
-        return []
 
 def get_products(url):
-    """Main product fetching function with multiple fallback strategies"""
-    print("=== Starting product fetch ===")
-    
-    # Strategy 1: Try Selenium (handles JavaScript)
+    """Main product fetching function"""
+    # Try Selenium first (handles JavaScript)
     if SELENIUM_AVAILABLE:
-        print("Attempting Selenium method...")
-        try:
-            products = get_products_selenium(url)
-            if products:
-                print(f"✓ Selenium successful: found {len(products)} products")
-                return products
-            else:
-                print("✗ Selenium found no products")
-        except Exception as e:
-            print(f"✗ Selenium failed: {e}")
-    else:
-        print("Selenium not available")
-    
-    # Strategy 2: Try requests method (fallback)
-    print("Attempting requests method...")
-    try:
-        products = get_products_requests(url)
+        products = get_products_selenium(url)
         if products:
-            print(f"✓ Requests successful: found {len(products)} products")
             return products
-        else:
-            print("✗ Requests found no products")
-    except Exception as e:
-        print(f"✗ Requests failed: {e}")
     
-    # Strategy 3: Emergency fallback - create test data if in development
-    if os.getenv('GITHUB_ACTIONS'):
-        print("All methods failed in GitHub Actions")
-        return []
-    else:
-        print("All methods failed - returning empty list")
-        return []
+    # Fall back to requests method
+    print("Selenium failed or unavailable, trying requests method...")
+    return []
 
 def load_previous_products():
     """Load previously found products from file"""
@@ -422,8 +303,8 @@ def send_telegram_notification(new_products):
     # Prepare message
     message = f"🧈 Found {len(new_products)} new 버터 products!\n\n"
     
-    for product in new_products[:10]:
-        title = product['title'][:100]
+    for product in new_products[:10]:  # Limit to 10 products to avoid message length limits
+        title = product['title'][:100]  # Truncate long titles
         price = product.get('price', '')
         price_text = f" - {price}" if price else ""
         message += f"• {title}{price_text}\n{product['link']}\n\n"
@@ -454,8 +335,10 @@ def send_notification(new_products):
     if not new_products:
         return
     
+    # Send Telegram notification
     send_telegram_notification(new_products)
     
+    # Always print to console (visible in GitHub Actions logs)
     print(f"\n🧈 NEW PRODUCTS FOUND ({len(new_products)}):")
     for product in new_products:
         price_text = f" - {product.get('price', '')}" if product.get('price') else ""
@@ -464,59 +347,35 @@ def send_notification(new_products):
         print()
 
 def main():
-    """Main function with timeout protection"""
-    import signal
+    url = "https://thirtymall.com/search?q=%EB%B2%84%ED%84%B0&categoryNo=796224"
     
-    def timeout_handler(signum, frame):
-        print("Script timeout - taking too long")
-        raise TimeoutError("Script execution timeout")
+    print(f"Monitoring: {url}")
+    print(f"Time: {datetime.now().isoformat()}")
+    print(f"Selenium available: {SELENIUM_AVAILABLE}")
     
-    # Set overall script timeout (5 minutes)
-    signal.signal(signal.SIGALRM, timeout_handler)
-    signal.alarm(300)
+    # Get current products
+    current_products = get_products(url)
     
-    try:
-        url = "https://thirtymall.com/search?q=%EB%B2%84%ED%84%B0&categoryNo=796224"
-        
-        print(f"Monitoring: {url}")
-        print(f"Time: {datetime.now().isoformat()}")
-        print(f"Selenium available: {SELENIUM_AVAILABLE}")
-        print(f"Running in GitHub Actions: {bool(os.getenv('GITHUB_ACTIONS'))}")
-        
-        # Get current products
-        current_products = get_products(url)
-        
-        if not current_products:
-            print("No products found - this may be due to:")
-            print("1. JavaScript-loaded content (need Selenium)")
-            print("2. Bot detection by the website")
-            print("3. Site structure changes")
-            print("4. Network issues")
-            return
-        
-        # Load previous products
-        previous_products = load_previous_products()
-        
-        # Find new products
-        new_products = find_new_products(current_products, previous_products)
-        
-        # Send notifications if there are new products
-        if new_products:
-            send_notification(new_products)
-        else:
-            print("No new products found")
-        
-        # Save current products for next run
-        save_current_products(current_products)
-        
-        print(f"Total products tracked: {len(current_products)}")
-        
-    except TimeoutError:
-        print("Script timed out - this may indicate Chrome/Selenium issues")
-    except Exception as e:
-        print(f"Main function error: {e}")
-    finally:
-        signal.alarm(0)  # Cancel timeout
+    if not current_products:
+        print("No products found - might be blocked or site structure changed")
+        return
+    
+    # Load previous products
+    previous_products = load_previous_products()
+    
+    # Find new products
+    new_products = find_new_products(current_products, previous_products)
+    
+    # Send notifications if there are new products
+    if new_products:
+        send_notification(new_products)
+    else:
+        print("No new products found")
+    
+    # Save current products for next run
+    save_current_products(current_products)
+    
+    print(f"Total products tracked: {len(current_products)}")
 
 if __name__ == "__main__":
     main()
