@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-ThirtyMall Product Monitor - Working Version with Prices
+ThirtyMall Product Monitor - Fixed Version with webdriver-manager
 Monitors for new products containing '버터' in category 796224
 """
 
@@ -12,418 +12,257 @@ import random
 from datetime import datetime
 import hashlib
 
-# Try to import selenium, fall back to requests if not available
+# Try to import selenium with webdriver-manager
 try:
     from selenium import webdriver
     from selenium.webdriver.chrome.options import Options
+    from selenium.webdriver.chrome.service import Service
     from selenium.webdriver.common.by import By
     from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
     from selenium.common.exceptions import TimeoutException, WebDriverException
+    from webdriver_manager.chrome import ChromeDriverManager
     SELENIUM_AVAILABLE = True
 except ImportError:
     SELENIUM_AVAILABLE = False
     print("Selenium not available, falling back to requests method")
 
 def get_products_selenium(url):
-    """Scrape products using Selenium (handles JavaScript) - WORKING VERSION"""
+    """Scrape products using Selenium with automatic driver management"""
     if not SELENIUM_AVAILABLE:
         print("Selenium not installed, cannot handle JavaScript content")
         return []
     
+    driver = None
     try:
-        # Debug: Check Chrome installation
-        print("=== Chrome Debug Info ===")
-        import subprocess
-        try:
-            chrome_version = subprocess.check_output(['google-chrome', '--version'], stderr=subprocess.STDOUT)
-            print(f"Chrome version: {chrome_version.decode().strip()}")
-        except Exception as e:
-            print(f"Chrome version check failed: {e}")
-            
-        try:
-            chromedriver_version = subprocess.check_output(['chromedriver', '--version'], stderr=subprocess.STDOUT)
-            print(f"ChromeDriver version: {chromedriver_version.decode().strip()}")
-        except Exception as e:
-            print(f"ChromeDriver version check failed: {e}")
+        print("Setting up Chrome with webdriver-manager...")
         
-        # Configure Chrome options for GitHub Actions
+        # Configure Chrome options
         chrome_options = Options()
         
-        # Try to find Chrome binary
-        chrome_paths = [
-            '/usr/bin/google-chrome-stable',
-            '/usr/bin/google-chrome',
-            '/usr/bin/chromium-browser',
-            '/usr/bin/chromium',
-            '/snap/bin/chromium'
-        ]
-        
-        chrome_binary = None
-        for path in chrome_paths:
-            if os.path.exists(path):
-                chrome_binary = path
-                print(f"Found Chrome binary: {chrome_binary}")
-                break
-        
-        if chrome_binary:
-            chrome_options.binary_location = chrome_binary
-        else:
-            print("No Chrome binary found, using default")
-        
-        # Comprehensive Chrome arguments for stability
-        chrome_options.add_argument('--headless=new')  # Use new headless mode
+        # Essential headless options for GitHub Actions
+        chrome_options.add_argument('--headless')
         chrome_options.add_argument('--no-sandbox')
         chrome_options.add_argument('--disable-dev-shm-usage')
         chrome_options.add_argument('--disable-gpu')
-        chrome_options.add_argument('--disable-web-security')
-        chrome_options.add_argument('--disable-features=VizDisplayCompositor')
+        chrome_options.add_argument('--disable-software-rasterizer')
         chrome_options.add_argument('--disable-extensions')
-        chrome_options.add_argument('--disable-plugins')
         chrome_options.add_argument('--disable-images')  # Save bandwidth
         chrome_options.add_argument('--window-size=1920,1080')
-        chrome_options.add_argument('--user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
-        chrome_options.add_argument('--remote-debugging-port=9222')
+        chrome_options.add_argument('--start-maximized')
+        chrome_options.add_argument('--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36')
         
-        # Set service
-        from selenium.webdriver.chrome.service import Service
-        service = Service('/usr/local/bin/chromedriver')
+        # Additional stability options
+        chrome_options.add_argument('--disable-blink-features=AutomationControlled')
+        chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        chrome_options.add_experimental_option('useAutomationExtension', False)
+        
+        # Use webdriver-manager to automatically download and manage ChromeDriver
+        service = Service(ChromeDriverManager().install())
         
         print("Starting Chrome browser...")
         driver = webdriver.Chrome(service=service, options=chrome_options)
         driver.implicitly_wait(10)
         
+        # Set page load timeout
+        driver.set_page_load_timeout(30)
+        
         print(f"Loading page: {url}")
         driver.get(url)
         
-        # Wait for page to load
+        # Wait for initial page load
         time.sleep(3)
         
-        # Wait for products to load - look for common loading indicators
+        # Scroll to trigger lazy loading
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight/2);")
+        time.sleep(2)
+        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+        time.sleep(2)
+        
+        # Wait for products to load
         try:
-            # Wait up to 15 seconds for content to appear
             WebDriverWait(driver, 15).until(
-                lambda driver: len(driver.find_elements(By.CSS_SELECTOR, "a[href*='product'], a[href*='goods'], a[href*='/p/']")) > 0
-                or "버터" in driver.page_source
+                lambda d: len(d.find_elements(By.XPATH, "//*[contains(text(), '버터')]")) > 0
+                or "버터" in d.page_source
             )
             print("Content loaded successfully")
         except TimeoutException:
-            print("Timeout waiting for content to load")
+            print("Timeout waiting for content to load - continuing anyway")
         
-        # Additional wait to ensure all dynamic content is loaded
+        # Additional wait for dynamic content
         time.sleep(2)
         
-        # Save page source for debugging
-        with open('debug_selenium_page.html', 'w', encoding='utf-8') as f:
-            f.write(driver.page_source)
-        print("Saved Selenium page HTML to debug_selenium_page.html")
+        # Debug: Save page source
+        if os.getenv('GITHUB_ACTIONS'):
+            with open('debug_page.html', 'w', encoding='utf-8') as f:
+                f.write(driver.page_source[:10000])  # First 10k chars for debugging
+            print("Saved page HTML for debugging")
         
         # Search for products containing '버터'
         products = []
+        processed_items = set()
         
-        # Method 1: Look for elements containing '버터' text
+        # Method 1: Find all elements containing '버터'
         butter_elements = driver.find_elements(By.XPATH, "//*[contains(text(), '버터')]")
         print(f"Found {len(butter_elements)} elements containing '버터'")
         
-        processed_links = set()
-        
         for element in butter_elements:
             try:
-                # Get the text content
-                title = element.text.strip()
-                if not title or '버터' not in title:
+                text = element.text.strip()
+                if not text or len(text) < 5:  # Skip very short texts
                     continue
                 
-                # Find the nearest link (parent or child)
-                link_element = None
-                product_container = None
-                
-                # Check if element itself is a link
-                if element.tag_name == 'a':
-                    link_element = element
-                    product_container = element
-                else:
-                    # Look for link in parent elements
-                    parent = element
-                    for _ in range(5):  # Check up to 5 levels up
-                        parent = parent.find_element(By.XPATH, "..")
-                        if parent.tag_name == 'a':
-                            link_element = parent
-                            product_container = parent
-                            break
-                        # Or look for a link within the parent
-                        links = parent.find_elements(By.TAG_NAME, 'a')
-                        if links:
-                            link_element = links[0]
+                # Try to find the product container
+                product_container = element
+                for _ in range(5):  # Go up to 5 levels
+                    parent = product_container.find_element(By.XPATH, "..")
+                    if parent.tag_name in ['li', 'div', 'article', 'section']:
+                        # Check if this looks like a product container
+                        if len(parent.text) > len(text) and len(parent.text) < 1000:
                             product_container = parent
                             break
                 
-                link = ""
-                if link_element:
-                    link = link_element.get_attribute('href') or ""
-                    
-                    # Skip if we've already processed this link
-                    if link in processed_links:
-                        continue
-                    processed_links.add(link)
+                # Extract product info
+                container_text = product_container.text
+                if container_text in processed_items:
+                    continue
+                processed_items.add(container_text)
                 
-                # Look for price in the product container or nearby elements
+                # Extract title (first line containing 버터)
+                lines = container_text.split('\n')
+                title = ""
+                for line in lines:
+                    if '버터' in line:
+                        title = line.strip()
+                        break
+                
+                if not title:
+                    continue
+                
+                # Extract price (look for patterns)
                 price = ""
-                if product_container:
-                    # Common price selectors for Korean e-commerce
-                    price_selectors = [
-                        '.price', '.cost', '.amount', '.won',
-                        '[class*="price"]', '[class*="cost"]', '[class*="won"]',
-                        '.sale-price', '.current-price', '.final-price'
-                    ]
-                    
-                    for price_sel in price_selectors:
-                        try:
-                            price_elem = product_container.find_element(By.CSS_SELECTOR, price_sel)
-                            price_text = price_elem.text.strip()
-                            # Look for Korean won patterns
-                            if any(char in price_text for char in ['원', '₩', ',']):
-                                price = price_text
-                                break
-                        except:
-                            continue
-                    
-                    # If no price found with selectors, look for text with 원 or ₩
-                    if not price:
-                        container_text = product_container.text
-                        import re
-                        price_patterns = [
-                            r'[\d,]+원',  # 1,000원
-                            r'₩[\d,]+',   # ₩1,000
-                            r'[\d,]+\s*원',  # 1,000 원
-                        ]
-                        for pattern in price_patterns:
-                            matches = re.findall(pattern, container_text)
-                            if matches:
-                                price = matches[0]
-                                break
+                import re
+                price_patterns = [
+                    r'[\d,]+\s*원',     # 1,000원
+                    r'₩\s*[\d,]+',      # ₩1,000
+                    r'KRW\s*[\d,]+',    # KRW 1,000
+                    r'[\d,]+won',       # 1,000won
+                ]
                 
-                # Clean up title and price
-                title = ' '.join(title.split())[:200]
-                price = ' '.join(price.split()) if price else ""
+                for pattern in price_patterns:
+                    matches = re.findall(pattern, container_text, re.IGNORECASE)
+                    if matches:
+                        price = matches[0].strip()
+                        break
                 
-                # Create unique ID
+                # Try to find link
+                link = ""
+                try:
+                    link_elements = product_container.find_elements(By.TAG_NAME, 'a')
+                    if link_elements:
+                        link = link_elements[0].get_attribute('href') or ""
+                except:
+                    pass
+                
+                # Create product entry
                 product_id = hashlib.md5((title + link).encode()).hexdigest()[:8]
                 
                 product = {
                     'id': product_id,
-                    'title': title,
+                    'title': title[:200],
                     'price': price,
-                    'link': link,
+                    'link': link if link else url,  # Use search URL if no specific link
                     'found_at': datetime.now().isoformat()
                 }
                 
                 products.append(product)
-                print(f"  Found product: {title[:100]} - {price}")
+                print(f"  Found: {title[:80]}... - {price}")
                 
             except Exception as e:
-                print(f"Error processing element: {e}")
                 continue
         
-        # Method 2: Look for product links and check their text
-        if len(products) < 5:  # Only if we didn't find many products
-            product_links = driver.find_elements(By.CSS_SELECTOR, "a[href*='product'], a[href*='goods'], a[href*='/p/'], a[href*='item']")
-            print(f"Found {len(product_links)} potential product links")
+        # Method 2: Try finding product cards/containers directly
+        if len(products) < 3:  # If we found very few products
+            print("Trying alternative selectors...")
             
-            for link_elem in product_links[:50]:  # Limit to avoid too much processing
+            # Common Korean e-commerce product selectors
+            product_selectors = [
+                '.product-item', '.goods-item', '.item-wrap',
+                '[class*="product"]', '[class*="goods"]', '[class*="item"]',
+                'li[class*="list"]', 'div[class*="box"]'
+            ]
+            
+            for selector in product_selectors:
                 try:
-                    link_text = link_elem.text.strip()
-                    link_url = link_elem.get_attribute('href') or ""
-                    
-                    if '버터' in link_text and link_url not in processed_links:
-                        processed_links.add(link_url)
+                    items = driver.find_elements(By.CSS_SELECTOR, selector)
+                    if items:
+                        print(f"Found {len(items)} items with selector: {selector}")
+                        for item in items[:20]:  # Check first 20
+                            try:
+                                item_text = item.text.strip()
+                                if '버터' in item_text and item_text not in processed_items:
+                                    processed_items.add(item_text)
+                                    
+                                    # Extract title
+                                    lines = item_text.split('\n')
+                                    title = next((line for line in lines if '버터' in line), "")
+                                    
+                                    if not title:
+                                        continue
+                                    
+                                    # Extract price
+                                    price = ""
+                                    import re
+                                    for pattern in [r'[\d,]+\s*원', r'₩\s*[\d,]+']:
+                                        matches = re.findall(pattern, item_text)
+                                        if matches:
+                                            price = matches[0].strip()
+                                            break
+                                    
+                                    # Get link
+                                    link = ""
+                                    try:
+                                        links = item.find_elements(By.TAG_NAME, 'a')
+                                        if links:
+                                            link = links[0].get_attribute('href') or ""
+                                    except:
+                                        pass
+                                    
+                                    product_id = hashlib.md5((title + link).encode()).hexdigest()[:8]
+                                    
+                                    product = {
+                                        'id': product_id,
+                                        'title': title[:200],
+                                        'price': price,
+                                        'link': link if link else url,
+                                        'found_at': datetime.now().isoformat()
+                                    }
+                                    
+                                    products.append(product)
+                                    print(f"  Found via selector: {title[:60]}... - {price}")
+                                    
+                            except Exception as e:
+                                continue
                         
-                        # Look for price near this link
-                        price = ""
-                        try:
-                            # Look in parent container for price
-                            parent = link_elem.find_element(By.XPATH, "..")
-                            price_selectors = [
-                                '.price', '.cost', '.amount', '.won',
-                                '[class*="price"]', '[class*="cost"]', '[class*="won"]'
-                            ]
+                        if len(products) >= 3:
+                            break
                             
-                            for price_sel in price_selectors:
-                                try:
-                                    price_elem = parent.find_element(By.CSS_SELECTOR, price_sel)
-                                    price_text = price_elem.text.strip()
-                                    if any(char in price_text for char in ['원', '₩', ',']):
-                                        price = price_text
-                                        break
-                                except:
-                                    continue
-                            
-                            # Fallback: look for price patterns in parent text
-                            if not price:
-                                import re
-                                parent_text = parent.text
-                                price_patterns = [r'[\d,]+원', r'₩[\d,]+', r'[\d,]+\s*원']
-                                for pattern in price_patterns:
-                                    matches = re.findall(pattern, parent_text)
-                                    if matches:
-                                        price = matches[0]
-                                        break
-                        except:
-                            pass
-                        
-                        title = ' '.join(link_text.split())[:200]
-                        product_id = hashlib.md5((title + link_url).encode()).hexdigest()[:8]
-                        
-                        product = {
-                            'id': product_id,
-                            'title': title,
-                            'price': price,
-                            'link': link_url,
-                            'found_at': datetime.now().isoformat()
-                        }
-                        
-                        products.append(product)
-                        print(f"  Found product via link: {title[:100]} - {price}")
-                        
                 except Exception as e:
                     continue
         
-        driver.quit()
-        print(f"Selenium result: Found {len(products)} products with '버터'")
+        print(f"Total products found: {len(products)}")
         return products
         
     except WebDriverException as e:
-        print(f"Selenium WebDriver error: {e}")
+        print(f"WebDriver error: {str(e)[:200]}")
         return []
     except Exception as e:
-        print(f"Selenium error: {e}")
+        print(f"Unexpected error: {str(e)[:200]}")
         return []
-
-def get_products(url):
-    """Main product fetching function"""
-    # Try Selenium first (handles JavaScript)
-    if SELENIUM_AVAILABLE:
-        products = get_products_selenium(url)
-        if products:
-            return products
-    
-    # Fall back to requests method
-    print("Selenium failed or unavailable, trying requests method...")
-    return []
-
-def load_previous_products():
-    """Load previously found products from file"""
-    try:
-        with open('previous_products.json', 'r', encoding='utf-8') as f:
-            return json.load(f)
-    except FileNotFoundError:
-        return []
-    except Exception as e:
-        print(f"Error loading previous products: {e}")
-        return []
-
-def save_current_products(products):
-    """Save current products to file"""
-    try:
-        with open('previous_products.json', 'w', encoding='utf-8') as f:
-            json.dump(products, f, ensure_ascii=False, indent=2)
-    except Exception as e:
-        print(f"Error saving products: {e}")
-
-def find_new_products(current, previous):
-    """Find products that are new compared to previous scan"""
-    previous_ids = {p['id'] for p in previous}
-    new_products = [p for p in current if p['id'] not in previous_ids]
-    return new_products
-
-def send_telegram_notification(new_products):
-    """Send notification via Telegram bot"""
-    if not new_products:
-        return
-    
-    bot_token = os.getenv('TELEGRAM_BOT_TOKEN')
-    chat_id = os.getenv('TELEGRAM_CHAT_ID')
-    
-    if not bot_token or not chat_id:
-        print("Telegram credentials not configured")
-        return
-    
-    # Prepare message
-    message = f"🧈 Found {len(new_products)} new 버터 products!\n\n"
-    
-    for product in new_products[:10]:  # Limit to 10 products to avoid message length limits
-        title = product['title'][:100]  # Truncate long titles
-        price = product.get('price', '')
-        price_text = f" - {price}" if price else ""
-        message += f"• {title}{price_text}\n{product['link']}\n\n"
-    
-    if len(new_products) > 10:
-        message += f"... and {len(new_products) - 10} more products"
-    
-    # Send via Telegram Bot API
-    telegram_url = f"https://api.telegram.org/bot{bot_token}/sendMessage"
-    payload = {
-        'chat_id': chat_id,
-        'text': message,
-        'parse_mode': 'HTML',
-        'disable_web_page_preview': False
-    }
-    
-    try:
-        response = requests.post(telegram_url, json=payload, timeout=10)
-        if response.status_code == 200:
-            print("Telegram notification sent successfully")
-        else:
-            print(f"Telegram notification failed: {response.status_code} - {response.text}")
-    except Exception as e:
-        print(f"Error sending Telegram notification: {e}")
-
-def send_notification(new_products):
-    """Send notification about new products"""
-    if not new_products:
-        return
-    
-    # Send Telegram notification
-    send_telegram_notification(new_products)
-    
-    # Always print to console (visible in GitHub Actions logs)
-    print(f"\n🧈 NEW PRODUCTS FOUND ({len(new_products)}):")
-    for product in new_products:
-        price_text = f" - {product.get('price', '')}" if product.get('price') else ""
-        print(f"  • {product['title']}{price_text}")
-        print(f"    {product['link']}")
-        print()
-
-def main():
-    url = "https://thirtymall.com/search?q=%EB%B2%84%ED%84%B0&categoryNo=796224"
-    
-    print(f"Monitoring: {url}")
-    print(f"Time: {datetime.now().isoformat()}")
-    print(f"Selenium available: {SELENIUM_AVAILABLE}")
-    
-    # Get current products
-    current_products = get_products(url)
-    
-    if not current_products:
-        print("No products found - might be blocked or site structure changed")
-        return
-    
-    # Load previous products
-    previous_products = load_previous_products()
-    
-    # Find new products
-    new_products = find_new_products(current_products, previous_products)
-    
-    # Send notifications if there are new products
-    if new_products:
-        send_notification(new_products)
-    else:
-        print("No new products found")
-    
-    # Save current products for next run
-    save_current_products(current_products)
-    
-    print(f"Total products tracked: {len(current_products)}")
-
-if __name__ == "__main__":
-    main()
+    finally:
+        if driver:
+            try:
+                driver.quit()
+                print("Browser closed")
+            except:
+                pass
