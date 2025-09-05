@@ -34,8 +34,11 @@ jobs:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: |
-        echo "Starting monitor script..."
-        python monitor.py || echo "Script exited with code $?"
+        # echo "Starting monitor script..."
+        # python monitor.py || echo "Script exited with code $?"
+
+        echo "Running multi-keyword monitor..."
+        python monitor_multi.py || echo "Multi monitor exited with code $?"
         echo "Script execution completed"
       
     - name: Upload debug artifacts
