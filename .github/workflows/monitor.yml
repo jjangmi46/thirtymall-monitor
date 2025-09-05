@@ -3,7 +3,7 @@ name: Product Monitor
 on:
   schedule:
     # Run every 2 hours (adjust as needed)
-    - cron: '0 */2 * * *'
+    - cron: '*/30 * * * *'
   workflow_dispatch:  # Allow manual triggering
 
 jobs:
