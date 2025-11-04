@@ -3,7 +3,7 @@ name: Product Monitor
 on:
   schedule:
     # Run every 2 hours (adjust as needed)
-    - cron: '*/30 * * * *'
+    - cron: '0 */2 * * *'
   workflow_dispatch:  # Allow manual triggering
 
 jobs:
@@ -34,11 +34,8 @@ jobs:
         TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
         TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       run: |
-        # echo "Starting monitor script..."
-        # python monitor.py || echo "Script exited with code $?"
-
-        echo "Running multi-keyword monitor..."
-        python monitor_multi.py || echo "Multi monitor exited with code $?"
+        echo "Starting monitor script..."
+        python monitor.py || echo "Script exited with code $?"
         echo "Script execution completed"
       
     - name: Upload debug artifacts
